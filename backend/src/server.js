@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { createApp } from './app.js';
 import { ConfigError, parseEnv } from './config/env.js';
 import { createLogger } from './lib/logger.js';
+import { createShutdownHandler } from './lib/shutdown.js';
 
 dotenv.config({ quiet: true });
 
@@ -40,18 +41,11 @@ async function main() {
     logger.info({ port: config.port, env: config.env, model: config.llm.model }, 'Server listening');
   });
 
-  let shuttingDown = false;
-  const shutdown = async (signal) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    logger.info({ signal }, 'Shutting down');
-    server.close(async () => {
-      await mongoose.disconnect();
-      logger.info('Shutdown complete');
-      process.exit(0);
-    });
-    setTimeout(() => process.exit(1), 10_000).unref();
-  };
+  const shutdown = createShutdownHandler({
+    server,
+    closeDb: () => mongoose.disconnect(),
+    logger,
+  });
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }
