@@ -3,3 +3,4 @@ node_modules/
 ai-prompts/
 .claude/settings.local.json
 dist/
+logs/
