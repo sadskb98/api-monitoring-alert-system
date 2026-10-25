@@ -18,6 +18,14 @@ describe('buildTransportTargets', () => {
     expect(targets[1].options).toEqual({ destination: 'logs/app.log', mkdir: true });
   });
 
+  it('can send console output to stderr (CLI) instead of stdout', () => {
+    expect(buildTransportTargets({ level: 'info', isDev: true, destination: 2 })[0].options.destination).toBe(
+      2,
+    );
+    const targets = buildTransportTargets({ level: 'info', isDev: false, file: 'x.log', destination: 2 });
+    expect(targets.map((t) => t.options.destination)).toEqual([2, 'x.log']);
+  });
+
   it('keeps JSON stdout alongside the file outside development', () => {
     const targets = buildTransportTargets({ level: 'info', isDev: false, file: 'logs/app.log' });
     expect(targets.map((t) => t.options.destination)).toEqual([1, 'logs/app.log']);

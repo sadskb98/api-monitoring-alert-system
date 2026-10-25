@@ -69,6 +69,14 @@ const envSchema = envObject.superRefine((env, ctx) => {
   if (env.EMAIL_ENABLED && !env.EMAIL_TO) {
     ctx.addIssue({ code: 'custom', path: ['EMAIL_TO'], message: 'is required when EMAIL_ENABLED=true' });
   }
+  // Without SMTP_HOST mail goes to an Ethereal test inbox: fine in dev, never what production wants.
+  if (env.EMAIL_ENABLED && env.NODE_ENV === 'production' && !env.SMTP_HOST) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['SMTP_HOST'],
+      message: 'is required when EMAIL_ENABLED=true in production',
+    });
+  }
 });
 
 /** Pure: JSON body limit (bytes) scaled to the configured batch size. */

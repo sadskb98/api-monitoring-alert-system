@@ -67,6 +67,18 @@ describe('parseEnv', () => {
     expect(issueKeys(() => parse({ EMAIL_ENABLED: 'true' }))).toContain('EMAIL_TO');
   });
 
+  it('requires SMTP_HOST for email in production (no Ethereal), but not in development', () => {
+    const email = { EMAIL_ENABLED: 'true', EMAIL_TO: 'oncall@example.com' };
+    expect(issueKeys(() => parse({ ...email, NODE_ENV: 'production' }))).toEqual(['SMTP_HOST']);
+    expect(parse({ ...email, NODE_ENV: 'development' }).email.smtp).toBeNull();
+    expect(
+      parse({ ...email, NODE_ENV: 'production', SMTP_HOST: 'smtp.example.com' }).email.smtp,
+    ).toMatchObject({
+      host: 'smtp.example.com',
+      port: 587,
+    });
+  });
+
   it('treats empty strings as unset', () => {
     const c = parse({ GEMINI_API_KEY: '', LOG_FILE: '', PORT: '' });
     expect(c.llm.enabled).toBe(false);

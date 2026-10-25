@@ -2,7 +2,7 @@
   "name": "api-monitor-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "Intelligent API Monitoring & Alert System — backend",
+  "description": "Intelligent API Monitoring & Alert System \u2014 backend",
   "type": "module",
   "main": "src/server.js",
   "engines": {
@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
+    "ingest": "node src/cli/ingest-file.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -20,6 +21,7 @@
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
     "mongoose": "^9.11.4",
+    "nodemailer": "^10.2.1",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
     "pino-pretty": "^13.2.0",

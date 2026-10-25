@@ -102,6 +102,12 @@ async function bulkWrite(ops) {
   }
 }
 
+/** Record that a notification covering these alerts was sent. */
+export async function markNotified(ids, at) {
+  if (ids.length === 0) return;
+  await Alert.updateMany({ _id: { $in: ids } }, { $set: { notified_at: at } });
+}
+
 export async function findActiveByFingerprints(fingerprints) {
   if (fingerprints.length === 0) return [];
   return Alert.find({ status: 'active', fingerprint: { $in: fingerprints } }).lean();

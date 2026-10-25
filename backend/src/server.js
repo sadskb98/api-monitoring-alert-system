@@ -1,42 +1,21 @@
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import { createApp } from './app.js';
-import { ConfigError, parseEnv } from './config/env.js';
+import { connectDbOrExit, loadConfigOrExit, warnIfLlmDisabled } from './bootstrap.js';
 import { createLogger } from './lib/logger.js';
 import { createShutdownHandler } from './lib/shutdown.js';
+import { createMonitorService } from './services/monitor.service.js';
 
 dotenv.config({ quiet: true });
-
-function loadConfigOrExit() {
-  try {
-    return parseEnv(process.env);
-  } catch (err) {
-    if (err instanceof ConfigError) {
-      console.error(err.message); // lists keys only, never values
-      process.exit(1);
-    }
-    throw err;
-  }
-}
 
 async function main() {
   const config = loadConfigOrExit();
   const logger = createLogger({ level: config.log.level, isDev: config.isDev, file: config.log.file });
+  warnIfLlmDisabled(config, logger);
+  await connectDbOrExit(config, logger);
 
-  if (!config.llm.enabled) {
-    logger.warn('GEMINI_API_KEY not set: LLM disabled, alerts will use template messages');
-  }
-
-  mongoose.set('strictQuery', true);
-  try {
-    await mongoose.connect(config.mongoUri, { serverSelectionTimeoutMS: 10_000 });
-    logger.info('Connected to MongoDB');
-  } catch (err) {
-    logger.fatal({ errName: err.name, errMessage: err.message }, 'Failed to connect to MongoDB');
-    process.exit(1);
-  }
-
-  const app = createApp({ config, logger });
+  const monitorService = createMonitorService({ config });
+  const app = createApp({ config, logger, monitorService });
   const server = app.listen(config.port, () => {
     logger.info(
       {
@@ -44,6 +23,7 @@ async function main() {
         env: config.env,
         model: config.llm.model,
         thinking_level: config.llm.thinkingLevel,
+        email: config.email.enabled,
       },
       'Server listening',
     );
@@ -51,7 +31,10 @@ async function main() {
 
   const shutdown = createShutdownHandler({
     server,
-    closeDb: () => mongoose.disconnect(),
+    closeDb: async () => {
+      await monitorService.idle(); // let in-flight digest emails finish (they update notified_at)
+      await mongoose.disconnect();
+    },
     logger,
   });
   process.on('SIGINT', shutdown);

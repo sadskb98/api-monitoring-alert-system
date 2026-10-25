@@ -17,20 +17,21 @@ export const REDACT_PATHS = [
 
 /**
  * Pure: decide pino transport targets.
- * - development: pino-pretty to stdout
- * - otherwise:   JSON to stdout (no transport -> synchronous, test-friendly)
+ * - development: pino-pretty to the console stream
+ * - otherwise:   JSON to the console stream (no transport -> synchronous, test-friendly)
  * - LOG_FILE set: additionally append JSON lines to that file (dir auto-created)
+ * The console stream is stdout (1) by default; the CLI uses stderr (2) to keep stdout for its result.
  */
-export function buildTransportTargets({ level, isDev, file }) {
+export function buildTransportTargets({ level, isDev, file, destination = 1 }) {
   const targets = [];
   if (isDev) {
     targets.push({
       target: 'pino-pretty',
       level,
-      options: { colorize: true, translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname' },
+      options: { colorize: true, translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname', destination },
     });
   } else if (file) {
-    targets.push({ target: 'pino/file', level, options: { destination: 1 } });
+    targets.push({ target: 'pino/file', level, options: { destination } });
   }
   if (file) {
     targets.push({ target: 'pino/file', level, options: { destination: file, mkdir: true } });
@@ -38,8 +39,9 @@ export function buildTransportTargets({ level, isDev, file }) {
   return targets;
 }
 
-export function createLogger({ level = 'info', isDev = false, file } = {}) {
-  const targets = buildTransportTargets({ level, isDev, file });
+export function createLogger({ level = 'info', isDev = false, file, destination = 1 } = {}) {
+  const targets = buildTransportTargets({ level, isDev, file, destination });
   const options = { level, redact: { paths: REDACT_PATHS, censor: '[REDACTED]' } };
-  return targets.length ? pino(options, pino.transport({ targets })) : pino(options);
+  if (targets.length) return pino(options, pino.transport({ targets }));
+  return destination === 1 ? pino(options) : pino(options, pino.destination(destination));
 }
