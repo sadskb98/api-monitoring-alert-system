@@ -6,6 +6,7 @@ import { createHealthController } from './controllers/health.controller.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { REQUEST_ID_HEADER, requestId } from './middleware/requestId.js';
+import { alertsRoutes } from './routes/alerts.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
 
 /**
@@ -33,6 +34,7 @@ export function createApp({ config, logger, db = mongoose.connection }) {
   app.use(express.json({ limit: config.jsonBodyLimit }));
 
   app.use('/health', healthRoutes(createHealthController({ db, llmEnabled: config.llm.enabled })));
+  app.use('/alerts', alertsRoutes());
 
   app.use(notFound);
   app.use(errorHandler);
