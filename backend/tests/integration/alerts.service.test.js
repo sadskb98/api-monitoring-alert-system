@@ -86,6 +86,27 @@ describe('alert lifecycle (applyPlan against MongoDB)', () => {
     expect(doc.anomalies.map((a) => a.rule)).toEqual(['LATENCY_CRITICAL']);
   });
 
+  it('does not escalate on a same-category downgrade (LATENCY_CRITICAL -> LATENCY_WARNING)', async () => {
+    await runBatch([{ ...APPOINTMENT_OK, response_time_ms: 6000 }], { now: t('10:00'), tag: 'first' });
+    const { plan, result } = await runBatch([{ ...APPOINTMENT_OK, response_time_ms: 2500 }], {
+      now: t('10:05'),
+      tag: 'second',
+    });
+
+    expect(needsMessage(plan)).toEqual([]);
+    expect(result.escalated).toEqual([]);
+    expect(result.updated).toHaveLength(1);
+    const [doc] = await Alert.find({}).lean();
+    expect(doc).toMatchObject({
+      severity: 'medium',
+      peak_severity: 'high',
+      seen_rules: ['LATENCY_CRITICAL', 'LATENCY_WARNING'], // every rule seen since opening
+      message_generated_at: t('10:00'),
+    });
+    expect(doc.anomalies.map((a) => a.rule)).toEqual(['LATENCY_WARNING']);
+    expect(doc.message).toContain('(first)');
+  });
+
   it('auto-resolves on a fully healthy observation', async () => {
     await runBatch(SPEC_EXAMPLE, { now: t('10:00') });
     const { result } = await runBatch([APPOINTMENT_OK], { now: t('10:05') });
@@ -101,6 +122,22 @@ describe('alert lifecycle (applyPlan against MongoDB)', () => {
 
     expect(result.resolved).toEqual([]);
     expect(await Alert.countDocuments({ status: 'active' })).toBe(1);
+  });
+
+  it('a mixed batch does not advance the healthy streak; it resets it (threshold > 1)', async () => {
+    const opts = (hhmm) => ({ now: t(hhmm), resolveAfterHealthy: 3 });
+    await runBatch([APPOINTMENT_FAIL], opts('10:00'));
+    await runBatch([APPOINTMENT_OK], opts('10:01'));
+    let [doc] = await Alert.find({}).lean();
+    expect(doc.healthy_streak).toBe(1);
+
+    // 2 healthy + 1 failing record: advancing would reach 1 + 2 = 3 and resolve
+    const { result } = await runBatch([APPOINTMENT_OK, APPOINTMENT_OK, APPOINTMENT_FAIL], opts('10:02'));
+
+    expect(result.resolved).toEqual([]);
+    expect(result.healthy).toEqual([]);
+    [doc] = await Alert.find({}).lean();
+    expect(doc).toMatchObject({ status: 'active', healthy_streak: 0 });
   });
 
   it('respects ALERT_RESOLVE_AFTER_HEALTHY across batches', async () => {
