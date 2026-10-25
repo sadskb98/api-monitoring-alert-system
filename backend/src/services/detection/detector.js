@@ -55,6 +55,28 @@ function batchStats(observations, anomalousCount) {
   };
 }
 
+/**
+ * Pure: the values that triggered each anomaly, for alert text and fact-checking.
+ * worst_observation alone is not enough: with several records, the status that fired
+ * AVAILABILITY and the latency that fired LATENCY can come from different records.
+ *   status_code      from the latest record that fired the AVAILABILITY rule
+ *   response_time_ms batch max when LATENCY fired (that is the record that fired it)
+ *   records_returned from the latest record that fired the DATA rule
+ * Without an anomaly in a category, the worst observation's value is used.
+ */
+function evidenceFor(anomalies, anomalous, worst, stats) {
+  const ruleIn = Object.fromEntries(anomalies.map((a) => [a.category, a.rule]));
+  const sourceOf = (rule) =>
+    latest(anomalous.filter((e) => e.anomalies.some((a) => a.rule === rule)).map((e) => e.observation));
+  const dataSource = ruleIn.DATA ? sourceOf(ruleIn.DATA) : worst;
+  return {
+    status_code: ruleIn.AVAILABILITY ? sourceOf(ruleIn.AVAILABILITY).status_code : worst.status_code,
+    response_time_ms: ruleIn.LATENCY ? stats.max_response_time_ms : worst.response_time_ms,
+    records_returned: dataSource.records_returned,
+    invalid_fields: ruleIn.DATA === 'INVALID_PAYLOAD' ? dataSource.invalid_fields : [],
+  };
+}
+
 /** Pure: group observations by API fingerprint, preserving first-seen order. */
 export function groupByApi(observations) {
   const groups = new Map();
@@ -93,13 +115,16 @@ export function detect(observations, thresholds) {
     }
 
     const anomalies = mergeAnomalies(anomalous.map((e) => e.anomalies));
+    const worst = pickWorst(anomalous).observation;
+    const stats = batchStats(group, anomalous.length);
     findings.push({
       fingerprint,
       api_name,
       anomalies,
       severity: maxSeverity(anomalies.map((a) => a.severity)),
-      worst_observation: toObservationSummary(pickWorst(anomalous).observation),
-      batch_stats: batchStats(group, anomalous.length),
+      worst_observation: toObservationSummary(worst),
+      evidence: evidenceFor(anomalies, anomalous, worst, stats),
+      batch_stats: stats,
     });
   }
 

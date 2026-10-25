@@ -170,6 +170,67 @@ describe('detect', () => {
     });
   });
 
+  describe('evidence', () => {
+    it('spec example: the record itself', () => {
+      const { findings } = detect(
+        [obs({ api_name: 'A', status_code: 500, response_time_ms: 5500, records_returned: 0 })],
+        THRESHOLDS,
+      );
+      expect(findings[0].evidence).toEqual({
+        status_code: 500,
+        response_time_ms: 5500,
+        records_returned: 0,
+        invalid_fields: [],
+      });
+    });
+
+    it('takes each value from the record that triggered its rule, not the worst record', () => {
+      const { findings } = detect(
+        [
+          obs({ api_name: 'A', status_code: 503, response_time_ms: 300, records_returned: 4 }),
+          obs({ api_name: 'A', status_code: 200, response_time_ms: 2500, records_returned: 0 }),
+          obs({ api_name: 'A', status_code: 200, response_time_ms: 6000 }),
+        ],
+        THRESHOLDS,
+      );
+      expect(findings[0].worst_observation).toMatchObject({ status_code: 503, response_time_ms: 300 });
+      expect(findings[0].evidence).toEqual({
+        status_code: 503,
+        response_time_ms: 6000,
+        records_returned: 0,
+        invalid_fields: [],
+      });
+    });
+
+    it('uses the latest record when several fired the same rule', () => {
+      const { findings } = detect(
+        [
+          obs({ api_name: 'A', status_code: 500, observed_at: t('10:00:00') }),
+          obs({ api_name: 'A', status_code: 502, observed_at: t('10:05:00') }),
+        ],
+        THRESHOLDS,
+      );
+      expect(findings[0].evidence.status_code).toBe(502);
+    });
+
+    it('carries invalid fields for INVALID_PAYLOAD', () => {
+      const invalid_fields = [{ field: 'records_returned', message: 'Expected an integer' }];
+      const { findings } = detect(
+        [obs({ api_name: 'A', records_returned: null, invalid_fields })],
+        THRESHOLDS,
+      );
+      expect(findings[0].evidence).toMatchObject({ records_returned: null, invalid_fields });
+    });
+
+    it('falls back to the worst record for categories without an anomaly', () => {
+      const { findings } = detect(
+        [obs({ api_name: 'A', status_code: 200, response_time_ms: 2500, records_returned: 9 })],
+        THRESHOLDS,
+      );
+      expect(findings[0].evidence).toMatchObject({ status_code: 200, records_returned: 9 });
+    });
+  });
+
   it('sorts findings by severity desc, then api name', () => {
     const { findings } = detect(
       [

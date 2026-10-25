@@ -67,9 +67,23 @@ export function planBatch({ findings, healthy, activeAlerts, resolveAfterHealthy
   return plan;
 }
 
-/** Pure: fingerprints that need fresh alert text (one LLM call covers all of them). */
+/**
+ * Pure: findings that need fresh alert text (one LLM call covers all of them),
+ * with escalation context so the text can say what got worse.
+ */
+export function messageRequests(plan) {
+  return [
+    ...plan.create.map(({ finding }) => ({ finding, escalation: null })),
+    ...plan.escalate.map(({ finding, reasons, newRules }) => ({
+      finding,
+      escalation: { reasons, new_rules: newRules },
+    })),
+  ];
+}
+
+/** Pure: findings that need fresh alert text. */
 export function needsMessage(plan) {
-  return [...plan.create.map((c) => c.finding), ...plan.escalate.map((e) => e.finding)];
+  return messageRequests(plan).map((r) => r.finding);
 }
 
 /** Pure: peak severity after applying a finding. */

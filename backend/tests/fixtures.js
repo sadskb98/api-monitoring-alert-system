@@ -1,3 +1,5 @@
+import { detect } from '../src/services/detection/detector.js';
+
 /** Spec section 5 example input, verbatim. */
 export const SPEC_EXAMPLE = Object.freeze([
   { api_name: 'PatientDataAPI', response_time_ms: 1200, status_code: 200, records_returned: 50 },
@@ -22,3 +24,12 @@ export function obs(overrides = {}) {
     ...overrides,
   };
 }
+
+/** The combined finding the real detector produces for these records (one API). */
+export function findingOf(...overrides) {
+  return detect(overrides.map(obs), THRESHOLDS).findings[0];
+}
+
+/** Spec example AppointmentAPI record as a detector finding: 500, 5500 ms, 0 records. */
+export const specFinding = () =>
+  findingOf({ api_name: 'AppointmentAPI', status_code: 500, response_time_ms: 5500, records_returned: 0 });

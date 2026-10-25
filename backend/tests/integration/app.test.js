@@ -3,8 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app.js';
 import { fakeDb, silentLogger, testConfig } from '../helpers.js';
 
+const stubMonitor = { processBatch: async (body) => ({ received: body.length }) };
 const makeApp = ({ readyState = 1, env = {} } = {}) =>
-  createApp({ config: testConfig(env), logger: silentLogger, db: fakeDb(readyState) });
+  createApp({
+    config: testConfig(env),
+    logger: silentLogger,
+    db: fakeDb(readyState),
+    monitorService: stubMonitor,
+  });
 
 describe('GET /health', () => {
   it('returns 200 when the DB is up', async () => {
@@ -70,10 +76,11 @@ describe('error handling', () => {
     expect(res.body.error).toMatchObject({ code: 'PAYLOAD_TOO_LARGE', details: { limit_bytes: 102_400 } });
   });
 
-  it('accepts a body under the limit (reaches routing)', async () => {
+  it('accepts a body under the limit (reaches the monitor service)', async () => {
     const app = makeApp({ env: { MAX_BATCH_SIZE: '1' } });
     const ok = JSON.stringify([{ api_name: 'X', padding: 'a'.repeat(50 * 1024) }]);
     const res = await request(app).post('/monitor').set('content-type', 'application/json').send(ok);
-    expect(res.status).toBe(404); // /monitor arrives in a later phase
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: 1 });
   });
 });

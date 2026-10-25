@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   escalationReasons,
   isNewRule,
+  messageRequests,
   needsMessage,
   nextPeakSeverity,
   nextSeenRules,
@@ -184,6 +185,20 @@ describe('helpers', () => {
       resolve: [],
     };
     expect(needsMessage(p).map((f) => f.fingerprint)).toEqual(['c', 'e']);
+  });
+
+  it('messageRequests carries escalation context, null for creates', () => {
+    const p = {
+      create: [{ finding: { fingerprint: 'c' } }],
+      escalate: [{ finding: { fingerprint: 'e' }, reasons: ['new_rules'], newRules: ['ZERO_RECORDS'] }],
+      touch: [],
+      healthy: [],
+      resolve: [],
+    };
+    expect(messageRequests(p)).toEqual([
+      { finding: { fingerprint: 'c' }, escalation: null },
+      { finding: { fingerprint: 'e' }, escalation: { reasons: ['new_rules'], new_rules: ['ZERO_RECORDS'] } },
+    ]);
   });
 
   it('peak severity never decreases', () => {
