@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { SEVERITIES } from '../lib/severity.js';
 
+/** Gemini thinkingConfig.thinkingLevel values; the lowest one supported is model dependent. */
+export const THINKING_LEVELS = Object.freeze(['minimal', 'low', 'medium', 'high']);
+
 const KB = 1024;
 const MIN_BODY_LIMIT_BYTES = 100 * KB;
 // Spec records are ~120 bytes; 1 KB per record leaves ample headroom for longer names/extra fields.
@@ -42,6 +45,7 @@ const envObject = z.object({
   LLM_TIMEOUT_MS: int({ min: 100 }).default(8000),
   LLM_MAX_RETRIES: int({ min: 0, max: 5 }).default(2),
   LLM_MAX_ITEMS: int({ min: 1, max: 500 }).default(50),
+  LLM_THINKING_LEVEL: z.enum(THINKING_LEVELS).default('minimal'),
 
   EMAIL_ENABLED: z.stringbool().default(false),
   EMAIL_MIN_SEVERITY: z.enum(SEVERITIES).default('high'),
@@ -118,6 +122,7 @@ export function parseEnv(source = process.env) {
       timeoutMs: e.LLM_TIMEOUT_MS,
       maxRetries: e.LLM_MAX_RETRIES,
       maxItems: e.LLM_MAX_ITEMS,
+      thinkingLevel: e.LLM_THINKING_LEVEL,
     },
     email: {
       enabled: e.EMAIL_ENABLED,

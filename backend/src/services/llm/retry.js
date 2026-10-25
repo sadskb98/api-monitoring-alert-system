@@ -44,12 +44,18 @@ export function backoffMs(attempt, random = Math.random) {
 
 /**
  * Call `fn` with up to `maxRetries` retries on retryable failures. Never throws.
- * @returns {Promise<{ ok: true, value, attempts } | { ok: false, failure, attempts }>}
+ * Each attempt is a separate `fn()` call, so a timeout inside `fn` applies per attempt.
+ * @returns {Promise<{ ok: true, value, attempts, attempt_ms } | { ok: false, failure, attempts }>}
  */
-export async function withRetry(fn, { maxRetries, log, sleep, random = Math.random }) {
+export async function withRetry(
+  fn,
+  { maxRetries, log, sleep, random = Math.random, now = () => performance.now() },
+) {
   for (let attempt = 1; ; attempt++) {
+    const started = now();
     try {
-      return { ok: true, value: await fn(), attempts: attempt };
+      const value = await fn();
+      return { ok: true, value, attempts: attempt, attempt_ms: Math.round(now() - started) };
     } catch (err) {
       const failure = classifyLlmError(err);
       if (!failure.retryable || attempt > maxRetries) return { ok: false, failure, attempts: attempt };

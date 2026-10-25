@@ -38,7 +38,15 @@ async function main() {
 
   const app = createApp({ config, logger });
   const server = app.listen(config.port, () => {
-    logger.info({ port: config.port, env: config.env, model: config.llm.model }, 'Server listening');
+    logger.info(
+      {
+        port: config.port,
+        env: config.env,
+        model: config.llm.model,
+        thinking_level: config.llm.thinkingLevel,
+      },
+      'Server listening',
+    );
   });
 
   const shutdown = createShutdownHandler({

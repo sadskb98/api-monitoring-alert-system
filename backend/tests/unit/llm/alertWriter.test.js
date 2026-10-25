@@ -1,7 +1,7 @@
 import { ApiError } from '@google/genai';
 import { describe, expect, it } from 'vitest';
 import { acceptItem, createAlertWriter, parseLlmResponse } from '../../../src/services/llm/alertWriter.js';
-import { LlmTimeoutError } from '../../../src/services/llm/geminiClient.js';
+import { LlmTimeoutError, createGeminiClient } from '../../../src/services/llm/geminiClient.js';
 import { renderTemplate } from '../../../src/services/llm/templates.js';
 import { THRESHOLDS, findingOf, specFinding } from '../../fixtures.js';
 import { captureLogger } from '../../helpers.js';
@@ -34,6 +34,7 @@ const goodBillingItem = (id = 'a2') => ({
 function scriptedClient(...script) {
   const calls = [];
   return {
+    model: 'fake-model',
     calls,
     async generateJson(args) {
       calls.push(args);
@@ -189,6 +190,77 @@ describe('alertWriter', () => {
     const client = scriptedClient(new LlmTimeoutError(8000), { alerts: [goodSpecItem()] });
     const { llm } = await write(client, [req(specFinding())]);
     expect(llm).toMatchObject({ status: 'ok', attempts: 2 });
+  });
+
+  it('logs latency at info on success', async () => {
+    let t = 0;
+    const client = scriptedClient(HIGH_DEMAND(), { alerts: [goodSpecItem()] });
+    const writer = createAlertWriter({
+      llm: LLM,
+      thresholds: THRESHOLDS,
+      client,
+      sleep: async (ms) => (t += ms),
+      random: () => 1,
+      now: () => (t += 100), // every clock read advances 100 ms
+    });
+    const { log, entries } = captureLogger();
+    await writer.writeMessages([req(specFinding())], { log });
+
+    const info = entries.filter((e) => e.level === 30 && e.msg === 'LLM alert text generated');
+    expect(info).toEqual([
+      expect.objectContaining({
+        model: 'fake-model',
+        items: 1,
+        llm_items: 1,
+        attempts: 2,
+        latency_ms: expect.any(Number),
+        attempt_ms: 100,
+      }),
+    ]);
+    expect(info[0].latency_ms).toBeGreaterThan(info[0].attempt_ms); // includes the failed attempt and backoff
+  });
+
+  describe('with the real Gemini client (fake transport)', () => {
+    const genaiFrom = (...steps) => ({
+      models: {
+        generateContent: () => {
+          const step = steps.shift();
+          return typeof step === 'function' ? step() : Promise.reject(step);
+        },
+      },
+    });
+    const answer = (ms) => () =>
+      new Promise((resolve) =>
+        setTimeout(() => resolve({ text: JSON.stringify({ alerts: [goodSpecItem()] }) }), ms),
+      );
+
+    it('applies the timeout per attempt: 503, then a timeout, then success', async () => {
+      const client = createGeminiClient(
+        { model: 'm', timeoutMs: 40, thinkingLevel: 'minimal' },
+        { genai: genaiFrom(HIGH_DEMAND(), () => new Promise(() => {}), answer(25)) },
+      );
+      const { messages, llm, warnings } = await write(client, [req(specFinding())]);
+
+      expect(llm).toMatchObject({ status: 'ok', attempts: 3 });
+      expect(messages.get('appointmentapi').message_source).toBe('llm');
+      expect(warnings('LLM call failed, retrying').map((w) => w.reason)).toEqual(['unavailable', 'timeout']);
+    });
+
+    it('a rejected thinking level is retried without thinkingConfig inside the same attempt', async () => {
+      const rejected = new ApiError({
+        status: 400,
+        message: 'Thinking level MINIMAL is not supported for this model.',
+      });
+      const client = createGeminiClient(
+        { model: 'm', timeoutMs: 1000, thinkingLevel: 'minimal' },
+        { genai: genaiFrom(rejected, answer(0)) },
+      );
+      const { llm, warnings } = await write(client, [req(specFinding())]);
+
+      expect(llm).toMatchObject({ status: 'ok', attempts: 1 });
+      expect(warnings('Model rejected thinkingConfig; retrying without it')).toHaveLength(1);
+      expect(warnings(FALLBACK)).toEqual([]);
+    });
   });
 
   it('does not retry a 400 and falls back immediately', async () => {

@@ -72,7 +72,7 @@ describe('withRetry', () => {
       if (calls === 1) throw apiError(503, HIGH_DEMAND);
       return 'ok';
     });
-    expect(await promise).toEqual({ ok: true, value: 'ok', attempts: 2 });
+    expect(await promise).toEqual({ ok: true, value: 'ok', attempts: 2, attempt_ms: expect.any(Number) });
     expect(sleeps).toEqual([1000]);
     expect(warnings('LLM call failed, retrying')).toEqual([
       { attempt: 1, reason: 'unavailable', status: 503, retry_in_ms: 1000 },

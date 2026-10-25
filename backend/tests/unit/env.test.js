@@ -27,6 +27,7 @@ describe('parseEnv', () => {
       timeoutMs: 8000,
       maxRetries: 2,
       maxItems: 50,
+      thinkingLevel: 'minimal',
     });
     expect(c.email).toMatchObject({ enabled: false, minSeverity: 'high', smtp: null });
     expect(c.corsOrigins).toEqual(['http://localhost:5173']);
@@ -74,6 +75,13 @@ describe('parseEnv', () => {
 
   it('enables the LLM when an API key is present', () => {
     expect(parse({ GEMINI_API_KEY: 'k' }).llm.enabled).toBe(true);
+  });
+
+  it('accepts each thinking level and rejects anything else', () => {
+    for (const level of ['minimal', 'low', 'medium', 'high']) {
+      expect(parse({ LLM_THINKING_LEVEL: level }).llm.thinkingLevel).toBe(level);
+    }
+    expect(issueKeys(() => parse({ LLM_THINKING_LEVEL: 'none' }))).toEqual(['LLM_THINKING_LEVEL']);
   });
 
   it('never includes secret values in the error message', () => {

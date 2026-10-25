@@ -125,8 +125,9 @@ export function createAlertWriter({
           systemInstruction: SYSTEM_INSTRUCTION,
           userContent,
           responseJsonSchema: RESPONSE_JSON_SCHEMA,
+          log,
         }),
-      { maxRetries: llm.maxRetries, log, sleep, random },
+      { maxRetries: llm.maxRetries, log, sleep, random, now },
     );
     const latency = Math.round(now() - started);
 
@@ -147,8 +148,16 @@ export function createAlertWriter({
       llmCount++;
     });
 
+    // latency_ms spans all attempts and backoff; attempt_ms is the successful request alone.
     log.info(
-      { items: requests.length, llm_items: llmCount, attempts: call.attempts, latency_ms: latency },
+      {
+        model: client.model,
+        items: requests.length,
+        llm_items: llmCount,
+        attempts: call.attempts,
+        latency_ms: latency,
+        attempt_ms: call.attempt_ms,
+      },
       'LLM alert text generated',
     );
     return summary(overallStatus(llmCount, requests.length), call.attempts, latency);
