@@ -272,14 +272,51 @@ describe('alertWriter', () => {
     });
 
     it.each([
-      ['a timeout', () => new LlmTimeoutError(8000)],
-      ['a 429', () => new ApiError({ status: 429, message: 'quota' })],
-      ['a 400', () => new ApiError({ status: 400, message: 'bad request' })],
-    ])('does not use fallbacks when the primary fails with %s', async (_label, error) => {
+      ['a timeout', () => new LlmTimeoutError(8000), 'timeout'],
+      [
+        'a 429 (per-model quota)',
+        () => new ApiError({ status: 429, message: 'quota exceeded' }),
+        'rate_limited',
+      ],
+    ])('tries fallbacks after the primary exhausts its retries on %s', async (_label, error, reason) => {
+      const primary = scriptedClient(error());
       const fallback = modelClient('fallback-a', OK);
-      const { messages } = await write(scriptedClient(error()), [req(specFinding())], {}, [fallback]);
+      const { messages, llm, warnings } = await write(primary, [req(specFinding())], {}, [fallback]);
+
+      expect(primary.calls).toHaveLength(3); // retried first: 1 + LLM_MAX_RETRIES
+      expect(fallback.calls).toHaveLength(1);
+      expect(messages.get('appointmentapi')).toMatchObject({
+        message_source: 'llm',
+        message_model: 'fallback-a',
+      });
+      expect(llm).toMatchObject({ status: 'ok', model: 'fallback-a', attempts: 4 });
+      expect(warnings(TRYING)).toEqual([{ from_model: 'fake-model', model: 'fallback-a', reason }]);
+    });
+
+    it('uses the final failure: 503s then a timeout on the last retry still tries fallbacks', async () => {
+      const primary = scriptedClient(HIGH_DEMAND(), HIGH_DEMAND(), new LlmTimeoutError(8000));
+      const fallback = modelClient('fallback-a', OK);
+      const { llm, warnings } = await write(primary, [req(specFinding())], {}, [fallback]);
+      expect(llm).toMatchObject({ status: 'ok', model: 'fallback-a', attempts: 4 });
+      expect(warnings(TRYING)).toEqual([
+        { from_model: 'fake-model', model: 'fallback-a', reason: 'timeout' },
+      ]);
+    });
+
+    it.each([
+      ['a 400', () => new ApiError({ status: 400, message: 'bad request' }), 'request_rejected'],
+      ['a 401', () => new ApiError({ status: 401, message: 'API key not valid' }), 'request_rejected'],
+      ['a 404', () => new ApiError({ status: 404, message: 'model not found' }), 'request_rejected'],
+    ])('goes straight to templates when the primary fails with %s', async (_label, error, reason) => {
+      const primary = scriptedClient(error());
+      const fallback = modelClient('fallback-a', OK);
+      const { messages, warnings } = await write(primary, [req(specFinding())], {}, [fallback]);
+
+      expect(primary.calls).toHaveLength(1); // not retried either
       expect(fallback.calls).toHaveLength(0);
       expect(messages.get('appointmentapi').message_source).toBe('template');
+      expect(warnings(TRYING)).toEqual([]);
+      expect(warnings(FALLBACK)).toEqual([expect.objectContaining({ reason })]);
     });
 
     it('does not use fallbacks when the primary succeeds', async () => {

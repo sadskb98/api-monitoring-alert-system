@@ -13,6 +13,12 @@ import {
 import { withRetry } from './retry.js';
 import { renderTemplate } from './templates.js';
 
+/**
+ * Primary-model failures (after its retries) that are worth trying another model for:
+ * capacity and quota are per model (free-tier quotas included); a bad request is not.
+ */
+const FALLBACK_REASONS = new Set(['unavailable', 'timeout', 'rate_limited']);
+
 /** Pure: most severe first (stable), so the item cap drops the least important ones. */
 function bySeverity(requests) {
   return [...requests].sort((a, b) => compareSeverity(b.finding.severity, a.finding.severity));
@@ -71,8 +77,9 @@ function overallStatus(llmCount, total) {
  * Writes alert text for the creates/escalations of one batch.
  * One LLM call per batch (capped at llm.maxItems, most severe first); any item the LLM
  * does not answer correctly gets template text. Never throws for LLM problems.
- * If the primary model is still unavailable (503 / UNAVAILABLE) after its retries, each
- * fallback model is tried once, in order, before giving up to templates.
+ * If the primary model's retries end in 503/UNAVAILABLE, a timeout or a 429, each fallback
+ * model is tried once, in order, before giving up to templates. 400 and other 4xx go
+ * straight to templates.
  *
  * @param {object} deps
  * @param {object} deps.llm          config.llm ({ enabled, apiKey, model, fallbackModels, timeoutMs, ... })
@@ -141,7 +148,7 @@ export function createAlertWriter({
     let used = client;
     let call = await callModel(client, llm.maxRetries);
     let attempts = call.attempts;
-    if (!call.ok && call.failure.reason === 'unavailable') {
+    if (!call.ok && FALLBACK_REASONS.has(call.failure.reason)) {
       for (const fallback of fallbackClients) {
         log.warn(
           { from_model: used.model, model: fallback.model, reason: call.failure.reason },
