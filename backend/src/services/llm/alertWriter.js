@@ -71,23 +71,29 @@ function overallStatus(llmCount, total) {
  * Writes alert text for the creates/escalations of one batch.
  * One LLM call per batch (capped at llm.maxItems, most severe first); any item the LLM
  * does not answer correctly gets template text. Never throws for LLM problems.
+ * If the primary model is still unavailable (503 / UNAVAILABLE) after its retries, each
+ * fallback model is tried once, in order, before giving up to templates.
  *
  * @param {object} deps
- * @param {object} deps.llm          config.llm ({ enabled, apiKey, model, timeoutMs, maxRetries, maxItems })
+ * @param {object} deps.llm          config.llm ({ enabled, apiKey, model, fallbackModels, timeoutMs, ... })
  * @param {object} deps.thresholds   config.thresholds
- * @param {object|null} [deps.client] { generateJson }; defaults to Gemini when enabled, null when disabled
+ * @param {object|null} [deps.client] { model, generateJson }; defaults to Gemini when enabled, null when disabled
+ * @param {object[]} [deps.fallbackClients] one client per llm.fallbackModels entry
  */
 export function createAlertWriter({
   llm,
   thresholds,
   client = llm.enabled ? createGeminiClient(llm) : null,
+  fallbackClients = llm.enabled
+    ? (llm.fallbackModels ?? []).map((model) => createGeminiClient({ ...llm, model }))
+    : [],
   sleep = delay,
   random = Math.random,
   now = () => performance.now(),
 }) {
   /**
    * @param {{ finding, escalation }[]} requests  from dedup.messageRequests()
-   * @returns {Promise<{ messages: Map<string, object>, llm: { status, attempts, latency_ms, fallbacks } }>}
+   * @returns {Promise<{ messages: Map<string, object>, llm: { status, model, attempts, latency_ms, fallbacks } }>}
    */
   async function writeMessages(requests, { log }) {
     const messages = new Map();
@@ -100,9 +106,10 @@ export function createAlertWriter({
         'Alert text fell back to template',
       );
     };
-    const summary = (status, attempts = 0, latency_ms = null) => ({
+    // model: the model that wrote the LLM text, null when no item came from the LLM
+    const summary = (status, attempts = 0, latency_ms = null, model = null) => ({
       messages,
-      llm: { status, attempts, latency_ms, fallbacks },
+      llm: { status, model, attempts, latency_ms, fallbacks },
     });
 
     if (requests.length === 0) return summary('skipped');
@@ -118,24 +125,44 @@ export function createAlertWriter({
       .forEach((r) => useTemplate(r, 'over_item_cap', `LLM_MAX_ITEMS=${llm.maxItems}`));
 
     const userContent = buildUserContent(buildPromptItems(sent, thresholds));
+    const callModel = (c, maxRetries) =>
+      withRetry(
+        () =>
+          c.generateJson({
+            systemInstruction: SYSTEM_INSTRUCTION,
+            userContent,
+            responseJsonSchema: RESPONSE_JSON_SCHEMA,
+            log,
+          }),
+        { maxRetries, log, sleep, random, now },
+      );
+
     const started = now();
-    const call = await withRetry(
-      () =>
-        client.generateJson({
-          systemInstruction: SYSTEM_INSTRUCTION,
-          userContent,
-          responseJsonSchema: RESPONSE_JSON_SCHEMA,
-          log,
-        }),
-      { maxRetries: llm.maxRetries, log, sleep, random, now },
-    );
+    let used = client;
+    let call = await callModel(client, llm.maxRetries);
+    let attempts = call.attempts;
+    if (!call.ok && call.failure.reason === 'unavailable') {
+      for (const fallback of fallbackClients) {
+        log.warn(
+          { from_model: used.model, model: fallback.model, reason: call.failure.reason },
+          'Trying fallback model',
+        );
+        used = fallback;
+        call = await callModel(fallback, 0); // each fallback model gets one attempt
+        attempts += call.attempts;
+        if (call.ok) break;
+      }
+    }
     const latency = Math.round(now() - started);
 
     if (!call.ok) {
       const { reason, status, detail } = call.failure;
-      const why = `${status ? `status ${status} ` : ''}after ${call.attempts} attempt(s): ${detail}`;
+      const tried = [client, ...fallbackClients.slice(0, fallbackClients.indexOf(used) + 1)];
+      const why =
+        `${status ? `status ${status} ` : ''}after ${attempts} attempt(s) ` +
+        `(models: ${tried.map((c) => c.model).join(', ')}): ${detail}`;
       sent.forEach((r) => useTemplate(r, reason, why));
-      return summary('fallback', call.attempts, latency);
+      return summary('fallback', attempts, latency);
     }
 
     const parsed = parseLlmResponse(call.value);
@@ -144,23 +171,25 @@ export function createAlertWriter({
       if (parsed.error) return useTemplate(request, parsed.error.reason, parsed.error.detail);
       const outcome = acceptItem(parsed.byId.get(`a${i + 1}`), request.finding);
       if (!outcome.ok) return useTemplate(request, outcome.reason, outcome.detail);
-      messages.set(request.finding.fingerprint, outcome.message);
+      messages.set(request.finding.fingerprint, { ...outcome.message, message_model: used.model });
       llmCount++;
     });
 
     // latency_ms spans all attempts and backoff; attempt_ms is the successful request alone.
     log.info(
       {
-        model: client.model,
+        model: used.model,
+        fallback_model_used: used !== client,
         items: requests.length,
         llm_items: llmCount,
-        attempts: call.attempts,
+        attempts,
         latency_ms: latency,
         attempt_ms: call.attempt_ms,
       },
       'LLM alert text generated',
     );
-    return summary(overallStatus(llmCount, requests.length), call.attempts, latency);
+    const status = overallStatus(llmCount, requests.length);
+    return summary(status, attempts, latency, llmCount > 0 ? used.model : null);
   }
 
   return { writeMessages };

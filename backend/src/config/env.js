@@ -42,6 +42,7 @@ const envObject = z.object({
 
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string({ error: 'is required' }).min(1, 'is required'),
+  GEMINI_FALLBACK_MODELS: z.string().optional(),
   LLM_TIMEOUT_MS: int({ min: 100 }).default(8000),
   LLM_MAX_RETRIES: int({ min: 0, max: 5 }).default(2),
   LLM_MAX_ITEMS: int({ min: 1, max: 500 }).default(50),
@@ -73,6 +74,12 @@ const envSchema = envObject.superRefine((env, ctx) => {
 /** Pure: JSON body limit (bytes) scaled to the configured batch size. */
 export function computeBodyLimitBytes(maxBatchSize) {
   return Math.max(MIN_BODY_LIMIT_BYTES, maxBatchSize * BODY_BYTES_PER_RECORD);
+}
+
+/** Pure: comma-separated fallback models -> unique list, without blanks or the primary model. */
+export function parseFallbackModels(value, primary) {
+  const models = (value ?? '').split(',').map((m) => m.trim());
+  return [...new Set(models)].filter((m) => m && m !== primary);
 }
 
 /** Pick only known keys and treat empty strings as unset (common in .env files). */
@@ -119,6 +126,7 @@ export function parseEnv(source = process.env) {
       enabled: Boolean(e.GEMINI_API_KEY),
       apiKey: e.GEMINI_API_KEY,
       model: e.GEMINI_MODEL,
+      fallbackModels: parseFallbackModels(e.GEMINI_FALLBACK_MODELS, e.GEMINI_MODEL),
       timeoutMs: e.LLM_TIMEOUT_MS,
       maxRetries: e.LLM_MAX_RETRIES,
       maxItems: e.LLM_MAX_ITEMS,

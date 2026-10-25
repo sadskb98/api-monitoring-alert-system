@@ -23,6 +23,7 @@ const batchSchema = new Schema(
         enum: ['ok', 'partial', 'fallback', 'skipped', 'disabled'],
         default: 'skipped',
       },
+      model: { type: String, default: null },
       attempts: { type: Number, default: 0 },
       latency_ms: { type: Number, default: null },
     },

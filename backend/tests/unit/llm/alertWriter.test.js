@@ -45,20 +45,24 @@ function scriptedClient(...script) {
   };
 }
 
-function writerWith(client, llm = {}) {
+/** Same scripted client under another model name (for fallback models). */
+const modelClient = (model, ...script) => Object.assign(scriptedClient(...script), { model });
+
+function writerWith(client, llm = {}, fallbackClients = []) {
   const sleeps = [];
   const writer = createAlertWriter({
     llm: { ...LLM, ...llm },
     thresholds: THRESHOLDS,
     client,
+    fallbackClients,
     sleep: async (ms) => sleeps.push(ms),
     random: () => 1,
   });
   return { writer, sleeps };
 }
 
-async function write(client, requests, llm) {
-  const { writer, sleeps } = writerWith(client, llm);
+async function write(client, requests, llm, fallbackClients) {
+  const { writer, sleeps } = writerWith(client, llm, fallbackClients);
   const capture = captureLogger();
   const result = await writer.writeMessages(requests, { log: capture.log });
   return { ...result, sleeps, ...capture };
@@ -70,7 +74,7 @@ describe('alertWriter', () => {
     const { messages, llm } = await write(client, []);
     expect(client.calls).toHaveLength(0);
     expect(messages.size).toBe(0);
-    expect(llm).toEqual({ status: 'skipped', attempts: 0, latency_ms: null, fallbacks: [] });
+    expect(llm).toEqual({ status: 'skipped', model: null, attempts: 0, latency_ms: null, fallbacks: [] });
   });
 
   it('uses the LLM text for every item in one call', async () => {
@@ -87,6 +91,7 @@ describe('alertWriter', () => {
       message: goodSpecItem().message,
       suggested_action: goodSpecItem().suggested_action,
       message_source: 'llm',
+      message_model: 'fake-model',
     });
     expect(messages.get('billingapi').message_source).toBe('llm');
     expect(llm).toMatchObject({ status: 'ok', attempts: 1, fallbacks: [] });
@@ -181,7 +186,9 @@ describe('alertWriter', () => {
     expect(warnings(FALLBACK)).toEqual([
       expect.objectContaining({
         reason: 'unavailable',
-        detail: expect.stringMatching(/^status 503 after 3 attempt\(s\): .*UNAVAILABLE/),
+        detail: expect.stringMatching(
+          /^status 503 after 3 attempt\(s\) \(models: fake-model\): .*UNAVAILABLE/,
+        ),
       }),
     ]);
   });
@@ -190,6 +197,97 @@ describe('alertWriter', () => {
     const client = scriptedClient(new LlmTimeoutError(8000), { alerts: [goodSpecItem()] });
     const { llm } = await write(client, [req(specFinding())]);
     expect(llm).toMatchObject({ status: 'ok', attempts: 2 });
+  });
+
+  describe('fallback models', () => {
+    const OK = { alerts: [goodSpecItem()] };
+    const TRYING = 'Trying fallback model';
+
+    it('tries a fallback model once after the primary stays 503, and records which model wrote the text', async () => {
+      const primary = scriptedClient(HIGH_DEMAND());
+      const fallback = modelClient('gemini-3.5-flash', OK);
+      const { messages, llm, warnings, entries } = await write(primary, [req(specFinding())], {}, [fallback]);
+
+      expect(primary.calls).toHaveLength(3); // 1 + LLM_MAX_RETRIES
+      expect(fallback.calls).toHaveLength(1);
+      expect(messages.get('appointmentapi')).toMatchObject({
+        message_source: 'llm',
+        message_model: 'gemini-3.5-flash',
+      });
+      expect(llm).toMatchObject({ status: 'ok', model: 'gemini-3.5-flash', attempts: 4 });
+      expect(warnings(TRYING)).toEqual([
+        { from_model: 'fake-model', model: 'gemini-3.5-flash', reason: 'unavailable' },
+      ]);
+      expect(entries.find((e) => e.msg === 'LLM alert text generated')).toMatchObject({
+        level: 30,
+        model: 'gemini-3.5-flash',
+        fallback_model_used: true,
+      });
+      expect(warnings(FALLBACK)).toEqual([]);
+    });
+
+    it('moves on to the next fallback when one fails, trying each only once', async () => {
+      const a = modelClient('fallback-a', HIGH_DEMAND());
+      const b = modelClient('fallback-b', new LlmTimeoutError(8000));
+      const c = modelClient('fallback-c', OK);
+      const { messages, llm, warnings } = await write(
+        scriptedClient(HIGH_DEMAND()),
+        [req(specFinding())],
+        {},
+        [a, b, c],
+      );
+
+      expect([a, b, c].map((x) => x.calls.length)).toEqual([1, 1, 1]);
+      expect(messages.get('appointmentapi').message_model).toBe('fallback-c');
+      expect(llm).toMatchObject({ status: 'ok', model: 'fallback-c', attempts: 6 });
+      expect(warnings(TRYING).map((w) => [w.from_model, w.model, w.reason])).toEqual([
+        ['fake-model', 'fallback-a', 'unavailable'],
+        ['fallback-a', 'fallback-b', 'unavailable'],
+        ['fallback-b', 'fallback-c', 'timeout'],
+      ]);
+    });
+
+    it('falls back to templates when every model fails, listing the models tried', async () => {
+      const a = modelClient('fallback-a', HIGH_DEMAND());
+      const { messages, llm, warnings } = await write(
+        scriptedClient(HIGH_DEMAND()),
+        [req(specFinding())],
+        {},
+        [a],
+      );
+
+      expect(messages.get('appointmentapi')).toMatchObject({
+        message_source: 'template',
+        message_model: null,
+      });
+      expect(llm).toMatchObject({ status: 'fallback', model: null, attempts: 4 });
+      expect(warnings(FALLBACK)).toEqual([
+        expect.objectContaining({
+          reason: 'unavailable',
+          detail: expect.stringMatching(
+            /^status 503 after 4 attempt\(s\) \(models: fake-model, fallback-a\): /,
+          ),
+        }),
+      ]);
+    });
+
+    it.each([
+      ['a timeout', () => new LlmTimeoutError(8000)],
+      ['a 429', () => new ApiError({ status: 429, message: 'quota' })],
+      ['a 400', () => new ApiError({ status: 400, message: 'bad request' })],
+    ])('does not use fallbacks when the primary fails with %s', async (_label, error) => {
+      const fallback = modelClient('fallback-a', OK);
+      const { messages } = await write(scriptedClient(error()), [req(specFinding())], {}, [fallback]);
+      expect(fallback.calls).toHaveLength(0);
+      expect(messages.get('appointmentapi').message_source).toBe('template');
+    });
+
+    it('does not use fallbacks when the primary succeeds', async () => {
+      const fallback = modelClient('fallback-a', OK);
+      const { llm } = await write(scriptedClient(OK), [req(specFinding())], {}, [fallback]);
+      expect(fallback.calls).toHaveLength(0);
+      expect(llm).toMatchObject({ status: 'ok', model: 'fake-model' });
+    });
   });
 
   it('logs latency at info on success', async () => {

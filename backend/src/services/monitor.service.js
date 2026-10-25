@@ -23,6 +23,7 @@ function toItem(alert, action) {
     message: alert.message,
     suggested_action: alert.suggested_action,
     message_source: alert.message_source,
+    message_model: alert.message_model,
   };
 }
 
@@ -35,7 +36,7 @@ export function buildBatchResponse({ batchId, received, accepted, rejected, find
     rejected,
     findings,
     alerts: Object.fromEntries(ACTIONS.map((action) => [action, result[action].length])),
-    llm: { status: llm.status, attempts: llm.attempts, latency_ms: llm.latency_ms },
+    llm: { status: llm.status, model: llm.model, attempts: llm.attempts, latency_ms: llm.latency_ms },
     items: ACTIONS.flatMap((action) => result[action].map((alert) => toItem(alert, action))),
   };
 }
@@ -77,7 +78,7 @@ export function createMonitorService({
       result,
       llm,
     });
-    await recordBatch({ batchId, source, requestId, response, llm, log });
+    await recordBatch({ batchId, source, requestId, response, log });
     log.info(
       { batch_id: response.batch_id, received, alerts: response.alerts, llm: response.llm },
       'Batch processed',
@@ -89,7 +90,7 @@ export function createMonitorService({
 }
 
 /** Audit write is best-effort: alerts are already persisted, so a failure here must not fail the batch. */
-async function recordBatch({ batchId, source, requestId, response, llm, log }) {
+async function recordBatch({ batchId, source, requestId, response, log }) {
   try {
     await Batch.create({
       _id: batchId,
@@ -100,7 +101,7 @@ async function recordBatch({ batchId, source, requestId, response, llm, log }) {
       rejected: response.rejected.length,
       findings: response.findings,
       alerts: response.alerts,
-      llm: { status: llm.status, attempts: llm.attempts, latency_ms: llm.latency_ms },
+      llm: response.llm,
     });
   } catch (err) {
     log.error({ err, batch_id: String(batchId) }, 'Failed to record batch audit');

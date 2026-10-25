@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, computeBodyLimitBytes, parseEnv } from '../../src/config/env.js';
+import { ConfigError, computeBodyLimitBytes, parseEnv, parseFallbackModels } from '../../src/config/env.js';
 import { BASE_ENV } from '../helpers.js';
 
 const parse = (overrides = {}) => parseEnv({ ...BASE_ENV, ...overrides });
@@ -28,6 +28,7 @@ describe('parseEnv', () => {
       maxRetries: 2,
       maxItems: 50,
       thinkingLevel: 'minimal',
+      fallbackModels: [],
     });
     expect(c.email).toMatchObject({ enabled: false, minSeverity: 'high', smtp: null });
     expect(c.corsOrigins).toEqual(['http://localhost:5173']);
@@ -82,6 +83,14 @@ describe('parseEnv', () => {
       expect(parse({ LLM_THINKING_LEVEL: level }).llm.thinkingLevel).toBe(level);
     }
     expect(issueKeys(() => parse({ LLM_THINKING_LEVEL: 'none' }))).toEqual(['LLM_THINKING_LEVEL']);
+  });
+
+  it('parses GEMINI_FALLBACK_MODELS as a trimmed, de-duplicated list without the primary', () => {
+    expect(
+      parse({ GEMINI_FALLBACK_MODELS: ' gemini-3.5-flash , b,,gemini-3.5-flash, test-model ' }).llm
+        .fallbackModels,
+    ).toEqual(['gemini-3.5-flash', 'b']);
+    expect(parseFallbackModels(undefined, 'm')).toEqual([]);
   });
 
   it('never includes secret values in the error message', () => {

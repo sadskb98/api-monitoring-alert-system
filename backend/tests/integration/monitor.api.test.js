@@ -21,8 +21,9 @@ const APPOINTMENT_OK = {
 };
 
 /** Fake LLM that answers every prompt item, writing the facts it was given. */
-function echoClient({ fail = null } = {}) {
+function echoClient({ fail = null, model = 'gemini-primary' } = {}) {
   const client = {
+    model,
     calls: 0,
     async generateJson({ userContent }) {
       client.calls++;
@@ -41,13 +42,14 @@ function echoClient({ fail = null } = {}) {
   return client;
 }
 
-function makeApp({ client = null, env = {} } = {}) {
+function makeApp({ client = null, fallbackClients = [], env = {} } = {}) {
   const config = testConfig(env);
   const { log, warnings } = captureLogger();
   const alertWriter = createAlertWriter({
     llm: { ...config.llm, enabled: Boolean(client) },
     thresholds: config.thresholds,
     client,
+    fallbackClients,
     sleep: async () => {},
   });
   const app = createApp({
@@ -88,8 +90,10 @@ describe('POST /monitor', () => {
           { rule: 'LATENCY_CRITICAL', category: 'LATENCY', severity: 'high' },
         ],
         message_source: 'llm',
+        message_model: 'gemini-primary',
       }),
     ]);
+    expect(res.body.llm.model).toBe('gemini-primary');
     const { message } = res.body.items[0];
     expect(message).toMatch(/\b500\b/);
     expect(message).toMatch(/\b0 records\b/);
@@ -97,7 +101,12 @@ describe('POST /monitor', () => {
 
     const alerts = await Alert.find({}).lean();
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ api_name: 'AppointmentAPI', status: 'active', severity: 'critical' });
+    expect(alerts[0]).toMatchObject({
+      api_name: 'AppointmentAPI',
+      status: 'active',
+      severity: 'critical',
+      message_model: 'gemini-primary',
+    });
     expect(await Alert.countDocuments({ fingerprint: 'patientdataapi' })).toBe(0);
     expect(client.calls).toBe(1);
   });
@@ -152,6 +161,29 @@ describe('POST /monitor', () => {
     expect(warnings('Alert text fell back to template')).toEqual([
       expect.objectContaining({ api_name: 'AppointmentAPI', reason: 'unavailable' }),
     ]);
+  });
+
+  it('uses a fallback model when the primary stays 503, storing it as message_model', async () => {
+    const primary = echoClient({
+      fail: () => new ApiError({ status: 503, message: 'This model is currently experiencing high demand.' }),
+    });
+    const fallback = echoClient({ model: 'gemini-3.5-flash' });
+    const { app } = makeApp({ client: primary, fallbackClients: [fallback] });
+    const res = await post(app, SPEC_EXAMPLE);
+
+    expect(res.body.llm).toMatchObject({ status: 'ok', model: 'gemini-3.5-flash', attempts: 4 });
+    expect(res.body.items[0]).toMatchObject({ message_source: 'llm', message_model: 'gemini-3.5-flash' });
+    const [alert] = await Alert.find({}).lean();
+    expect(alert.message_model).toBe('gemini-3.5-flash');
+    const batch = await Batch.findById(res.body.batch_id).lean();
+    expect(batch.llm.model).toBe('gemini-3.5-flash');
+  });
+
+  it('template text stores message_model null', async () => {
+    const { app } = makeApp();
+    await post(app, SPEC_EXAMPLE);
+    const [alert] = await Alert.find({}).lean();
+    expect(alert).toMatchObject({ message_source: 'template', message_model: null });
   });
 
   it('reports rejected records and processes the rest', async () => {

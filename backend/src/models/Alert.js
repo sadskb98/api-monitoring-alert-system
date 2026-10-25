@@ -40,6 +40,7 @@ const alertSchema = new Schema(
     message: { type: String, required: true },
     suggested_action: { type: String, default: null },
     message_source: { type: String, enum: ['llm', 'template'], required: true },
+    message_model: { type: String, default: null }, // Gemini model that wrote the text; null for templates
     message_generated_at: { type: Date, required: true },
 
     last_observation: { type: observationSchema, required: true },

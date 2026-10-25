@@ -38,6 +38,7 @@ describe('renderTemplate', () => {
       suggested_action:
         'Check service logs and recent deployments; roll back or fail over if errors persist.',
       message_source: 'template',
+      message_model: null,
     });
   });
 

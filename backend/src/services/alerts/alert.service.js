@@ -15,6 +15,7 @@ function messageFields(message, now) {
     message: message.message,
     suggested_action: message.suggested_action ?? null,
     message_source: message.message_source,
+    message_model: message.message_model ?? null,
     message_generated_at: now,
   };
 }

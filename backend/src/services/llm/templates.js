@@ -103,5 +103,6 @@ export function renderTemplate(finding, thresholds) {
     message: sentences.join(' '),
     suggested_action: ACTIONS[top],
     message_source: 'template',
+    message_model: null,
   };
 }
