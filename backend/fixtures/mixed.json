@@ -1,0 +1,43 @@
+[
+  {
+    "api_name": "PatientDataAPI",
+    "response_time_ms": 1100,
+    "status_code": 200,
+    "records_returned": 48
+  },
+  {
+    "api_name": "BillingAPI",
+    "response_time_ms": 310,
+    "status_code": 401,
+    "records_returned": 0
+  },
+  {
+    "api_name": "NotificationAPI",
+    "response_time_ms": 220,
+    "status_code": 429,
+    "records_returned": 0
+  },
+  {
+    "api_name": "SearchAPI",
+    "response_time_ms": 3400,
+    "status_code": 200,
+    "records_returned": 120
+  },
+  {
+    "api_name": "InventoryAPI",
+    "response_time_ms": 450,
+    "status_code": 200,
+    "records_returned": 0
+  },
+  {
+    "api_name": "ReportingAPI",
+    "response_time_ms": "fast",
+    "status_code": 200,
+    "records_returned": 12
+  },
+  {
+    "response_time_ms": 800,
+    "status_code": 200,
+    "records_returned": 5
+  }
+]

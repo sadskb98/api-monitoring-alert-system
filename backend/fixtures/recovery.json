@@ -1,0 +1,14 @@
+[
+  {
+    "api_name": "AppointmentAPI",
+    "response_time_ms": 640,
+    "status_code": 200,
+    "records_returned": 38
+  },
+  {
+    "api_name": "PatientDataAPI",
+    "response_time_ms": 980,
+    "status_code": 200,
+    "records_returned": 52
+  }
+]

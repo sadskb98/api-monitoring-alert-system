@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { checkBatchText, describeLlm } from '../../src/lib/batch.js';
 import { SAMPLES } from '../../src/components/samples.js';
@@ -35,7 +38,17 @@ describe('checkBatchText', () => {
   });
 });
 
+const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../backend/fixtures');
+const backendFixture = (name) => JSON.parse(readFileSync(path.join(FIXTURES, name), 'utf8'));
+
 describe('SAMPLES', () => {
+  it('match the backend fixtures used by the CLI', () => {
+    const sample = (id) => JSON.parse(SAMPLES.find((s) => s.id === id).text);
+    expect(sample('spec')).toEqual(backendFixture('sample-batch.json'));
+    expect(sample('recovery')).toEqual(backendFixture('recovery.json'));
+    expect(sample('mixed')).toEqual(backendFixture('mixed.json'));
+  });
+
   it('Mixed includes a record without api_name and one with a malformed field', () => {
     const mixed = JSON.parse(SAMPLES.find((s) => s.id === 'mixed').text);
     expect(mixed.some((r) => !('api_name' in r))).toBe(true);

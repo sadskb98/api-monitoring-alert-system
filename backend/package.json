@@ -2,7 +2,7 @@
   "name": "api-monitor-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "Intelligent API Monitoring & Alert System \u2014 backend",
+  "description": "Intelligent API Monitoring & Alert System — backend",
   "type": "module",
   "main": "src/server.js",
   "engines": {
@@ -12,6 +12,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "ingest": "node src/cli/ingest-file.js",
+    "db:reset": "node src/cli/db-reset.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
