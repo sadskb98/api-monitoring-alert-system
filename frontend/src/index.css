@@ -1,0 +1,80 @@
+@import 'tailwindcss';
+
+/* Neutral surface tokens; severity colors come from the Tailwind palette (lib/severity.js). */
+:root {
+  --canvas: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f1f3f6;
+  --line: #e3e7ed;
+  --line-strong: #cfd6df;
+  --fg: #0f172a;
+  --muted: #5b6676;
+  --subtle: #8a94a3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #0a0e15;
+    --surface: #111722;
+    --surface-2: #19202d;
+    --line: #232c3b;
+    --line-strong: #2f3a4c;
+    --fg: #e5e9f0;
+    --muted: #9aa5b5;
+    --subtle: #6b7686;
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--fg);
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes row-flash {
+  from {
+    background-color: rgb(99 102 241 / 0.16);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.row-flash {
+  animation: row-flash 3s ease-out;
+}
+
+@keyframes indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
+  }
+}
+.progress-indeterminate {
+  animation: indeterminate 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-flash,
+  .progress-indeterminate,
+  .animate-ping,
+  .animate-spin {
+    animation: none;
+  }
+}
