@@ -464,7 +464,7 @@ curl -X PATCH http://localhost:4000/alerts/6adef2968e23c78480934690 \
 
 ```bash
 npm test                     # backend, then frontend
-npm test --prefix backend    # 394 tests (28 files): unit + integration
+npm test --prefix backend    # 397 tests (29 files): unit + integration
 npm test --prefix frontend   # 78 tests (8 files): components, hooks, API client
 ```
 
