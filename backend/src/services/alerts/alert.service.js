@@ -1,4 +1,5 @@
 import { NotFoundError } from '../../lib/errors.js';
+import { escapeRegex } from '../../lib/regex.js';
 import { SEVERITIES, severityRank } from '../../lib/severity.js';
 import { Alert } from '../../models/Alert.js';
 import { escalationReasons, nextPeakSeverity, nextSeenRules } from './dedup.js';
@@ -213,11 +214,15 @@ const SORTS = {
   last_seen: { last_seen_at: -1 },
 };
 
-/** Pure: Mongo filter for list queries (severity handled separately for counts). */
+/**
+ * Pure: Mongo filter for list queries (severity handled separately for counts).
+ * api_name is a substring search on the fingerprint (already lower-cased and whitespace-normalized,
+ * so the match is case-insensitive); the input is escaped so it always matches literally.
+ */
 export function buildListFilter({ status = 'active', api_name, rule }) {
   const filter = {};
   if (status !== 'all') filter.status = status;
-  if (api_name) filter.fingerprint = fingerprintFor(api_name);
+  if (api_name) filter.fingerprint = { $regex: escapeRegex(fingerprintFor(api_name)) };
   if (rule) filter['anomalies.rule'] = rule;
   return filter;
 }

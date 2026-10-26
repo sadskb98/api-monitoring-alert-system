@@ -106,10 +106,16 @@ describe('buildListFilter', () => {
     expect(buildListFilter({})).toEqual({ status: 'active' });
   });
 
-  it('supports status=all, api name (normalized) and rule', () => {
+  it('supports status=all, api name (normalized substring) and rule', () => {
     expect(buildListFilter({ status: 'all', api_name: ' Appointment  API ', rule: 'HTTP_5XX' })).toEqual({
-      fingerprint: 'appointment api',
+      fingerprint: { $regex: 'appointment api' },
       'anomalies.rule': 'HTTP_5XX',
+    });
+  });
+
+  it('escapes regex special characters in the api name', () => {
+    expect(buildListFilter({ api_name: 'Billing.API (v2)*' }).fingerprint).toEqual({
+      $regex: 'billing\\.api \\(v2\\)\\*',
     });
   });
 });

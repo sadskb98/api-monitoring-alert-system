@@ -90,6 +90,27 @@ describe('GET /alerts', () => {
     expect(res.body.data.map((a) => a.api_name)).toEqual(['BillingAPI']);
   });
 
+  it('filters by a partial api_name (substring, any case)', async () => {
+    const res = await request(app()).get('/alerts?api_name=POINT');
+    expect(res.body.data.map((a) => a.api_name)).toEqual(['AppointmentAPI']);
+
+    const all = await request(app()).get('/alerts?api_name=api');
+    expect(all.body.data.map((a) => a.api_name).sort()).toEqual([
+      'AppointmentAPI',
+      'BillingAPI',
+      'SearchAPI',
+    ]);
+    expect(all.body.meta.counts_by_severity).toEqual({ low: 0, medium: 1, high: 1, critical: 1 });
+  });
+
+  it('matches regex special characters literally', async () => {
+    for (const query of ['.', '.*', '(', 'Billing|Search']) {
+      const res = await request(app()).get(`/alerts?api_name=${encodeURIComponent(query)}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+    }
+  });
+
   it('filters by rule', async () => {
     const res = await request(app()).get('/alerts?rule=LATENCY_CRITICAL');
     expect(res.body.data.map((a) => a.api_name)).toEqual(['AppointmentAPI']);

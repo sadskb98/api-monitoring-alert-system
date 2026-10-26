@@ -133,6 +133,26 @@ describe('App with alerts', () => {
   });
 });
 
+describe('API search', () => {
+  it('sends the typed text as a partial api_name filter after a debounce and keeps it in the URL', async () => {
+    const { api } = renderWithProviders(<App />);
+    await screen.findByText('All monitored APIs are healthy');
+    const search = screen.getByRole('searchbox', { name: 'Filter by API name' });
+    expect(search).toHaveAttribute('placeholder', 'Search API…');
+
+    await userEvent.type(search, 'point');
+    await waitFor(() =>
+      expect(api.listAlerts).toHaveBeenLastCalledWith(
+        expect.objectContaining({ api: 'point' }),
+        expect.anything(),
+      ),
+    );
+    expect(window.location.search).toBe('?api=point');
+    // one request for the whole word, not one per keystroke
+    expect(api.listAlerts.mock.calls.filter(([f]) => f.api !== '')).toHaveLength(1);
+  });
+});
+
 describe('Header health', () => {
   it('shows DB and LLM state from /health', async () => {
     renderWithProviders(<App />);

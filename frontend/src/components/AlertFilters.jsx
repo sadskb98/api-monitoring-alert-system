@@ -91,7 +91,7 @@ export function AlertFilters({ filters, setFilters, resetFilters }) {
           type="search"
           value={apiText}
           onChange={(e) => setApiText(e.target.value)}
-          placeholder="API name (exact)"
+          placeholder="Search API…"
           aria-label="Filter by API name"
           className={`${CONTROL} w-44 pl-7`}
         />
